@@ -1,0 +1,98 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>Sphero Gesture Control</title>
+<style>
+  body { background: #111; color: white; text-align: center; font-family: Arial; }
+  video { transform: scaleX(-1); width: 80%; border: 3px solid white; margin-top: 10px; }
+  button { padding: 10px 20px; font-size: 16px; margin: 10px; }
+</style>
+</head>
+<body>
+<h1>🤖 Sphero Gesture Control</h1>
+<button id="connectBtn">Connect Sphero</button>
+<video id="video" autoplay playsinline></video>
+<p id="status">Status: Not Connected</p>
+
+<script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@mediapipe/drawing_utils/drawing_utils.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js"></script>
+
+<script>
+let device;
+let server;
+let txChar;
+let moveInterval;
+
+// Connect to Sphero
+document.getElementById("connectBtn").addEventListener("click", async () => {
+  try {
+    device = await navigator.bluetooth.requestDevice({
+      filters: [{ namePrefix: 'SB-' }], // Sphero Bolt name starts with SB-
+      optionalServices: [0x22bb]
+    });
+    server = await device.gatt.connect();
+    const service = await server.getPrimaryService(0x22bb);
+    txChar = await service.getCharacteristic(0x2bb2);
+    document.getElementById("status").innerText = "Status: Connected to " + device.name;
+  } catch (err) {
+    alert("Error: " + err);
+  }
+});
+
+async function sendCommand(bytes) {
+  if (txChar) {
+    await txChar.writeValue(new Uint8Array(bytes));
+  }
+}
+
+// Sphero Move Functions (simple)
+function moveForward() { sendCommand([0x8d, 0x00, 0x00]); }
+function turnLeft() { sendCommand([0x8d, 0x00, 0x5a]); }
+function turnRight() { sendCommand([0x8d, 0x00, 0xa5]); }
+function stopMove() { sendCommand([0x8d, 0x00, 0xff]); }
+
+// MediaPipe setup
+const videoElement = document.getElementById('video');
+const hands = new Hands({ locateFile: (file) => {
+  return `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${file}`;
+}});
+hands.setOptions({
+  maxNumHands: 1,
+  modelComplexity: 1,
+  minDetectionConfidence: 0.7,
+  minTrackingConfidence: 0.7
+});
+hands.onResults(onResults);
+
+const camera = new Camera(videoElement, {
+  onFrame: async () => {
+    await hands.send({image: videoElement});
+  },
+  width: 640,
+  height: 480
+});
+camera.start();
+
+function onResults(results) {
+  if (!results.multiHandLandmarks || results.multiHandLandmarks.length === 0) return;
+  
+  const hand = results.multiHandLandmarks[0];
+  const wrist = hand[0];
+  const indexTip = hand[8];
+  
+  // Simple gesture detection
+  if (indexTip.y < wrist.y - 0.1) {
+    moveForward();
+  } else if (indexTip.x < wrist.x - 0.1) {
+    turnLeft();
+  } else if (indexTip.x > wrist.x + 0.1) {
+    turnRight();
+  } else {
+    stopMove();
+  }
+}
+</script>
+</body>
+</html>
